@@ -1,5 +1,3 @@
-ERP Study Repository
-
 This repository contains the data and analysis scripts for the study:
 
 From the app to the lexicon: Neurocognitive markers of word integration in a second language
@@ -71,10 +69,10 @@ Key variables:
 
 subject: participant ID
 item: stimulus ID
-word_type: experimental condition
+word_type: experimental condition (L1, L2 Remote, L2 Recent)
 relatedness: Related / Unrelated
 mean_amplitude: ERP amplitude (µV)
-time_window: e.g., N400 (300–500 ms), LPC (500–800 ms)
+time_window: 0.3 (300–500 ms, N400), 0.5 (500–800 ms, LPC)
 
 Behavioral dataset (behavioral.csv)
 
@@ -82,6 +80,7 @@ Includes:
 
 Reaction times (RTs)
 Accuracy
+
 📈 Statistical analysis
 
 ERP and behavioral data were analyzed using linear mixed-effects models.
