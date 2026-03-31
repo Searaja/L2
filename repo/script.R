@@ -147,16 +147,6 @@ ggplot(resumen_por_sujeto, aes(x = factor(subject), y = n_trials, fill = related
        x = "Sujeto", y = "Número de Trials") +
   theme(axis.text.x = element_text(angle = 45))
 
-#datos_filtrados <- datos_filtrados %>%
-#  group_by(subject) %>%
-#  mutate(
-#    media_ma = mean(mean_amplitude, na.rm = TRUE),
-#    sd_ma = sd(mean_amplitude, na.rm = TRUE)
-#  ) %>%
-#  filter(mean_amplitude > media_ma - 5*sd_ma,
-#         mean_amplitude < media_ma + 5*sd_ma) %>%
-#  ungroup()
-
 ggplot(datos_filtrados, aes(x = subject, y = mean_amplitude)) +
   geom_boxplot() +
   theme_minimal()

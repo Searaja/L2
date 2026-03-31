@@ -8,36 +8,40 @@ The project investigates ERP responses (e.g., N400, LPC) in a semantic decision 
 
 📁 repo/
 ├── data/
-│   ├── eeg_epochs/        # Preprocessed EEG data (.fif files; one per subject; N=17)
-│   ├── eeg_data.csv       # Dataset used for ERP statistical analyses
+│   ├── epochs/        # Preprocessed EEG data (.fif files; one per subject; N=17)
+│   ├── epoch_amplitudes.csv       # Dataset used for ERP statistical analyses
 │   ├── behavioral.csv     # Behavioral dataset (RTs, accuracy; N=24)
 │
-├── scripts/
-│   ├── main_analysis.R    # Main statistical analyses (GLMM / LMM)
+├── script.R    # Main statistical analyses (GLMM / LMM)
 │
-├── results/
+├── tables/
 │   ├── tables.pdf         # Summary tables reported in the manuscript
 │   ├── tables.xlsx        # Same tables in editable format
 │
 ├── README.md
 
 ⚙️ Requirements
+
 EEG data
 
 EEG data are provided as preprocessed epoch files in .fif format, compatible with MNE-Python.
 Preprocessing steps (artifact rejection, ICA, filtering) are described in the manuscript.
 
 R environment
-All statistical analyses were conducted in R (version X.X.X).
+All statistical analyses were conducted in R (version 4.4.0).
 
 Required packages:
 install.packages(c(
-  "tidyverse",
+  "ggplot2",
   "lme4",
   "lmerTest",
   "emmeans",
   "DHARMa",
-  "glmmTMB"
+  "glmmTMB",
+  "modelsummary",
+  "car",
+  "dplyr",
+  "nlme",
 ))
 
 ▶️ How to reproduce the analyses
@@ -54,11 +58,12 @@ Fits linear mixed-effects models
 Generates the results reported in the manuscript
 
 📊 Data description
-EEG data
-17 participants
-Preprocessed epoch files (.fif)
-One file per subject
-ERP dataset (eeg_data.csv)
+-EEG data
+-17 participants
+-Preprocessed epoch files (.fif)
+-One file per subject
+-ERP dataset (eeg_data.csv). Values reported here were obtained by computing the mean amplitude
+of the respective epoch on the electrodes and time windows reported in the manuscript.
 
 Contains trial-level ERP measures used in statistical analyses.
 
@@ -81,7 +86,7 @@ Accuracy
 
 ERP and behavioral data were analyzed using linear mixed-effects models.
 
-Fixed effects: Word Type (or Language), Relatedness, and their interaction
+Fixed effects: Word Type, Relatedness, and their interaction
 Random effects: Subject and Item
 
 Post hoc comparisons were computed using emmeans.
@@ -95,5 +100,5 @@ Minor differences may occur depending on R and package versions.
 
 For questions or issues:
 
-[Your name]
-[Your email]
+Ramon Igarreta
+ramon@fbmc.fcen.uba.ar
