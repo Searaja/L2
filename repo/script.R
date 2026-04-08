@@ -65,6 +65,8 @@ df_filt <- df %>%
   filter(abs(rt - mean(rt, na.rm = TRUE)) < k * sd(rt, na.rm = TRUE)) %>%
   ungroup()
 
+table(df_filt$word_type, df_filt$relatedness)
+
 model_RT <- lme( log(rt) ~ word_type * relatedness 
       ,random = ~1 | subject/item, data = df_filt, weights = varIdent(form = ~1 | word_type))
 
@@ -83,8 +85,9 @@ Anova(model_RT, type="II")
 p <- emmip(model_RT, relatedness ~ word_type)
 print(p + ggplot2::ggtitle("RT"))
 emmeans(model_RT, pairwise ~ word_type, type="response")
+emmeans(model_RT, pairwise ~ word_type|relatedness, type="response")
 emmeans(model_RT, pairwise ~ relatedness, type="response")
-
+emmeans(model_RT, pairwise ~ relatedness|word_type, type="response")
 
 # EEG DATA
 
