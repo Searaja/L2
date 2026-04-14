@@ -13,8 +13,8 @@ The project investigates ERP responses (e.g., N400, LPC) in a semantic decision 
 ├── script.R    # Main statistical analyses (GLMM / LMM)
 │
 ├── tables/
-│   ├── tables.pdf         # Summary tables reported in the manuscript
-│   ├── tables.xlsx        # Same tables in editable format
+│   ├── *.pdf         # Summary tables reported in the manuscript
+│   ├── *.xlsx        # Tables in editable format
 │
 ├── README.md
 

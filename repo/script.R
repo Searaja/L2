@@ -189,21 +189,11 @@ qqline(res)
 
 plot(fitted(model_eeg), res)
 abline(h = 0)
+
 # =============================================================================
 # SUPPLEMENTARY TABLES
 # Models: model_Acc (glmer), model_RT (lme), model_eeg (glmmTMB)
-# Requires: broom.mixed, flextable, officer, dplyr, lmerTest, car
 # =============================================================================
-
-library(lme4)
-library(lmerTest)
-library(nlme)
-library(glmmTMB)
-library(car)
-library(broom.mixed)   # tidy() para modelos mixtos
-library(flextable)
-library(officer)
-library(dplyr)
 
 # -----------------------------------------------------------------------------
 # HELPER FUNCTIONS
