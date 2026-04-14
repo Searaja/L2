@@ -11,6 +11,11 @@ library(ggplot2)
 library(DHARMa)
 library(nlme)
 
+library(broom.mixed)   # tidy() para modelos mixtos
+library(flextable)
+library(officer)
+
+
 # BEHAVIORAL DATA
 
 df <- read.csv("data/behavioral.csv", header = TRUE) 
@@ -113,7 +118,7 @@ levels(data$relatedness)[levels(data$relatedness) == 0] <- "Unrelated"
 # Only correct answers and RT < 2.5 SD from RT mean
 
 data_filt <- data %>%
-  filter(window_start == 0.3, channel == "Cz")
+  filter(window_start == 0.5, channel == "Pz")
 
 data_filt <- data_filt %>%
   group_by(subject,word_type,relatedness) %>%
@@ -184,3 +189,443 @@ qqline(res)
 
 plot(fitted(model_eeg), res)
 abline(h = 0)
+# =============================================================================
+# SUPPLEMENTARY TABLES
+# Models: model_Acc (glmer), model_RT (lme), model_eeg (glmmTMB)
+# Requires: broom.mixed, flextable, officer, dplyr, lmerTest, car
+# =============================================================================
+
+library(lme4)
+library(lmerTest)
+library(nlme)
+library(glmmTMB)
+library(car)
+library(broom.mixed)   # tidy() para modelos mixtos
+library(flextable)
+library(officer)
+library(dplyr)
+
+# -----------------------------------------------------------------------------
+# HELPER FUNCTIONS
+# -----------------------------------------------------------------------------
+
+# Round all numeric columns in a data.frame
+round_df <- function(df, digits = 3) {
+  df %>% mutate(across(where(is.numeric), ~ round(.x, digits)))
+}
+
+# Format p-values: <.001, <.01, <.05, or exact value
+fmt_p <- function(p) {
+  case_when(
+    p < .001 ~ "<.001",
+    p < .01  ~ "<.01",
+    p < .05  ~ "<.05",
+    TRUE     ~ as.character(round(p, 3))
+  )
+}
+
+# Build a flextable with APA-style formatting
+make_ft <- function(df, caption = "") {
+  ft <- flextable(df) %>%
+    set_caption(caption) %>%
+    bold(part = "header") %>%
+    hline_top(part = "header", border = fp_border(width = 1.5)) %>%
+    hline_bottom(part = "header", border = fp_border(width = 1)) %>%
+    hline_bottom(part = "body",   border = fp_border(width = 1.5)) %>%
+    autofit() %>%
+    font(fontname = "Times New Roman", part = "all") %>%
+    fontsize(size = 10, part = "all") %>%
+    align(align = "center", part = "all") %>%
+    align(j = 1, align = "left", part = "body")
+  ft
+}
+
+# -----------------------------------------------------------------------------
+# 1. model_Acc — Binomial GLMM (glmer)
+# -----------------------------------------------------------------------------
+
+## 1a. Fixed effects
+tidy_acc <- tidy(model_Acc, effects = "fixed", conf.int = TRUE, conf.level = 0.95)
+
+tab_acc_fixed <- tidy_acc %>%
+  transmute(
+    `Predictor`        = term,
+    `B`                = estimate,
+    `SE`               = std.error,
+    `95% CI lower`       = conf.low,
+    `95% CI upper`       = conf.high,
+    `z`                = statistic,
+    `p`                = fmt_p(p.value)
+  ) %>%
+  round_df(3) %>%
+  mutate(`p` = fmt_p(as.numeric(gsub("<", "", `p`))))   # conserva el formato
+
+# re-apply fmt_p sobre el valor original (no el redondeado)
+tab_acc_fixed$p <- fmt_p(tidy_acc$p.value)
+
+## 1b. Random effects
+tidy_acc_re <- tidy(model_Acc, effects = "ran_pars")
+
+tab_acc_re <- tidy_acc_re %>%
+  transmute(
+    `Group`   = group,
+    `Term` = term,
+    `SD`      = round(estimate, 3)
+  )
+
+## 1c. Type II ANOVA (Wald chi-square)
+anova_acc <- Anova(model_Acc, type = "II") %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("Effect") %>%
+  rename(`Chi²` = Chisq, `gl` = Df, `p` = `Pr(>Chisq)`) %>%
+  mutate(
+    `Chi²` = round(`Chi²`, 3),
+    `p`    = fmt_p(`p`)
+  )
+
+# -----------------------------------------------------------------------------
+# 2. model_RT — LMM with nlme::lme (log RT)
+# -----------------------------------------------------------------------------
+
+## 2a. Fixed effects
+sum_rt <- summary(model_RT)
+fe_rt  <- as.data.frame(sum_rt$tTable)
+
+tab_rt_fixed <- fe_rt %>%
+  tibble::rownames_to_column("Predictor") %>%
+  transmute(
+    `Predictor` = Predictor,
+    `B`         = round(Value, 3),
+    `SE`        = round(Std.Error, 3),
+    `gl`        = round(DF, 0),
+    `t`         = round(`t-value`, 3),
+    `p`         = fmt_p(`p-value`)
+  )
+
+# IC 95% para lme (intervals())
+ic_rt <- tryCatch({
+  intervals(model_RT, which = "fixed")$fixed %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("Predictor") %>%
+    transmute(Predictor, `95% CI lower` = round(lower, 3), `95% CI upper` = round(upper, 3))
+}, error = function(e) NULL)
+
+if (!is.null(ic_rt)) {
+  tab_rt_fixed <- tab_rt_fixed %>%
+    left_join(ic_rt, by = "Predictor") %>%
+    select(Predictor, B, SE, `95% CI lower`, `95% CI upper`, gl, t, p)
+}
+
+## 2b. Random effects (variances)
+vc_rt <- VarCorr(model_RT)
+tab_rt_re <- as.data.frame(vc_rt) %>%
+  transmute(
+    `Group`   = grp,
+    `Term` = var1,
+    `SD`      = round(sdcor, 3)
+  ) %>%
+  filter(!is.na(`Term`))
+
+## 2c. Type II ANOVA
+# car::Anova with nlme::lme returns Chisq/Df/Pr(>Chisq)
+anova_rt <- Anova(model_RT, type = "II") %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("Effect") %>%
+  rename(`Chi²` = Chisq, `df` = Df, `p_raw` = `Pr(>Chisq)`) %>%
+  mutate(
+    `Chi²` = round(`Chi²`, 3),
+    `p`      = fmt_p(p_raw)
+  ) %>%
+  select(Effect, `Chi²`, df, p)
+
+# -----------------------------------------------------------------------------
+# 3. model_eeg — Gaussian GLMM with glmmTMB
+# -----------------------------------------------------------------------------
+
+## 3a. Fixed effects (conditional component)
+tidy_eeg <- tidy(model_eeg, effects = "fixed", component = "cond",
+                 conf.int = TRUE, conf.level = 0.95)
+
+tab_eeg_fixed <- tidy_eeg %>%
+  transmute(
+    `Predictor`  = term,
+    `B`          = round(estimate, 3),
+    `SE`         = round(std.error, 3),
+    `95% CI lower` = round(conf.low, 3),
+    `95% CI upper` = round(conf.high, 3),
+    `z`          = round(statistic, 3),
+    `p`          = fmt_p(p.value)
+  )
+
+## 3b. Random effects
+tidy_eeg_re <- tidy(model_eeg, effects = "ran_pars", component = "cond")
+
+tab_eeg_re <- tidy_eeg_re %>%
+  transmute(
+    `Group`   = group,
+    `Term` = term,
+    `SD`      = round(estimate, 3)
+  )
+
+## 3c. Type II ANOVA
+anova_eeg <- Anova(model_eeg, type = "II") %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("Effect") %>%
+  rename(`Chi²` = Chisq, `gl` = Df, `p` = `Pr(>Chisq)`) %>%
+  mutate(
+    `Chi²` = round(`Chi²`, 3),
+    `p`    = fmt_p(`p`)
+  )
+
+# -----------------------------------------------------------------------------
+# HELPER FUNCTION: extract emmeans contrasts as a clean data.frame
+# -----------------------------------------------------------------------------
+
+# Takes a pairwise emmeans object and returns a formatted data.frame
+fmt_emmeans_contrasts <- function(emm_pairs, stat_type = "t") {
+  df <- as.data.frame(summary(emm_pairs$contrasts))
+  
+  # Common columns
+  out <- df %>%
+    rename_with(~ gsub("\\.", "_", .x)) %>%
+    rename_with(tolower)
+  
+  # Detect statistic column (t.ratio or z.ratio)
+  stat_col <- grep("ratio", names(out), value = TRUE)[1]
+  
+  out <- out %>%
+    transmute(
+      `Contrast`    = contrast,
+      `Estimate`     = round(estimate, 3),
+      `SE`           = round(std_error, 3),
+      !!stat_type   := round(.data[[stat_col]], 3),
+      `gl`           = if ("df" %in% names(out)) round(df, 1) else NA_real_,
+      `p adjusted`   = fmt_p(p_value)
+    )
+  
+  # Add odds/response ratio column if present (binomial/response scale models)
+  if ("odds_ratio" %in% names(df)) {
+    out <- out %>% mutate(`OR` = round(df$odds_ratio, 3), .after = `Estimate`)
+  }
+  if ("ratio" %in% names(df)) {
+    out <- out %>% mutate(`Ratio` = round(df$ratio, 3), .after = `Estimate`)
+  }
+  
+  out
+}
+
+# Version for conditional contrasts (~ A | B): adds moderator column
+fmt_emmeans_contrasts_by <- function(emm_pairs, by_var, stat_type = "t") {
+  df <- as.data.frame(summary(emm_pairs$contrasts))
+  
+  stat_col <- grep("ratio", names(df), value = TRUE)[1]
+  p_col    <- grep("p.value|p_value", names(df), value = TRUE)[1]
+  se_col   <- grep("SE|std.error|std_error", names(df), value = TRUE, ignore.case = TRUE)[1]
+  
+  out <- df %>%
+    transmute(
+      `Contrast`    = contrast,
+      !!by_var      := .data[[by_var]],
+      `Estimate`     = round(estimate, 3),
+      `SE`           = round(.data[[se_col]], 3),
+      !!stat_type   := round(.data[[stat_col]], 3),
+      `gl`           = if ("df" %in% names(df)) round(df, 1) else NA_real_,
+      `p adjusted`   = fmt_p(.data[[p_col]])
+    )
+  out
+}
+
+# -----------------------------------------------------------------------------
+# CONTRASTS — Model 1: Accuracy (glmer, response scale = odds ratio)
+# -----------------------------------------------------------------------------
+
+# word_type (marginal)
+emm_acc_wt    <- emmeans(model_Acc, pairwise ~ word_type, type = "response")
+tab_acc_c1    <- as.data.frame(summary(emm_acc_wt$contrasts)) %>%
+  transmute(
+    `Contrast`  = contrast,
+    `OR`         = round(odds.ratio, 3),
+    `SE`         = round(SE, 3),
+    `z`          = round(z.ratio, 3),
+    `p adjusted` = fmt_p(p.value)
+  )
+
+# word_type | relatedness
+emm_acc_wt_r  <- emmeans(model_Acc, pairwise ~ word_type | relatedness, type = "response")
+tab_acc_c2    <- as.data.frame(summary(emm_acc_wt_r$contrasts)) %>%
+  transmute(
+    `Contrast`    = contrast,
+    `Relatedness`  = relatedness,
+    `OR`           = round(odds.ratio, 3),
+    `SE`           = round(SE, 3),
+    `z`            = round(z.ratio, 3),
+    `p adjusted`   = fmt_p(p.value)
+  )
+
+# relatedness | word_type
+emm_acc_r_wt  <- emmeans(model_Acc, pairwise ~ relatedness | word_type, type = "response")
+tab_acc_c3    <- as.data.frame(summary(emm_acc_r_wt$contrasts)) %>%
+  transmute(
+    `Contrast`    = contrast,
+    `Word type`    = word_type,
+    `OR`           = round(odds.ratio, 3),
+    `SE`           = round(SE, 3),
+    `z`            = round(z.ratio, 3),
+    `p adjusted`   = fmt_p(p.value)
+  )
+
+# -----------------------------------------------------------------------------
+# CONTRASTS — Model 2: RT (lme, response scale = ratio of geometric means)
+# -----------------------------------------------------------------------------
+
+# word_type (marginal)
+emm_rt_wt     <- emmeans(model_RT, pairwise ~ word_type, type = "response")
+tab_rt_c1     <- as.data.frame(summary(emm_rt_wt$contrasts)) %>%
+  transmute(
+    `Contrast`  = contrast,
+    `Ratio`      = round(ratio, 3),
+    `SE`         = round(SE, 3),
+    `gl`         = round(df, 1),
+    `t`          = round(t.ratio, 3),
+    `p adjusted` = fmt_p(p.value)
+  )
+
+# word_type | relatedness
+emm_rt_wt_r   <- emmeans(model_RT, pairwise ~ word_type | relatedness, type = "response")
+tab_rt_c2     <- as.data.frame(summary(emm_rt_wt_r$contrasts)) %>%
+  transmute(
+    `Contrast`    = contrast,
+    `Relatedness`  = relatedness,
+    `Ratio`        = round(ratio, 3),
+    `SE`           = round(SE, 3),
+    `gl`           = round(df, 1),
+    `t`            = round(t.ratio, 3),
+    `p adjusted`   = fmt_p(p.value)
+  )
+
+# relatedness (marginal)
+emm_rt_r      <- emmeans(model_RT, pairwise ~ relatedness, type = "response")
+tab_rt_c3     <- as.data.frame(summary(emm_rt_r$contrasts)) %>%
+  transmute(
+    `Contrast`  = contrast,
+    `Ratio`      = round(ratio, 3),
+    `SE`         = round(SE, 3),
+    `gl`         = round(df, 1),
+    `t`          = round(t.ratio, 3),
+    `p adjusted` = fmt_p(p.value)
+  )
+
+# relatedness | word_type
+emm_rt_r_wt   <- emmeans(model_RT, pairwise ~ relatedness | word_type, type = "response")
+tab_rt_c4     <- as.data.frame(summary(emm_rt_r_wt$contrasts)) %>%
+  transmute(
+    `Contrast`    = contrast,
+    `Word type`    = word_type,
+    `Ratio`        = round(ratio, 3),
+    `SE`           = round(SE, 3),
+    `gl`           = round(df, 1),
+    `t`            = round(t.ratio, 3),
+    `p adjusted`   = fmt_p(p.value)
+  )
+
+# -----------------------------------------------------------------------------
+# CONTRASTS — Model 3: EEG (glmmTMB, original scale = mean difference)
+# -----------------------------------------------------------------------------
+
+# word_type (marginal)
+emm_eeg_wt    <- emmeans(model_eeg, pairwise ~ word_type, adjust = "tukey")
+tab_eeg_c1    <- as.data.frame(summary(emm_eeg_wt$contrasts)) %>%
+  transmute(
+    `Contrast`  = contrast,
+    `Estimate`   = round(estimate, 3),
+    `SE`         = round(SE, 3),
+    `gl`         = round(df, 1),
+    `z`          = round(z.ratio, 3),
+    `p adjusted` = fmt_p(p.value)
+  )
+
+# relatedness (marginal)
+emm_eeg_r     <- emmeans(model_eeg, pairwise ~ relatedness, adjust = "tukey")
+tab_eeg_c2    <- as.data.frame(summary(emm_eeg_r$contrasts)) %>%
+  transmute(
+    `Contrast`  = contrast,
+    `Estimate`   = round(estimate, 3),
+    `SE`         = round(SE, 3),
+    `gl`         = round(df, 1),
+    `z`          = round(z.ratio, 3),
+    `p adjusted` = fmt_p(p.value)
+  )
+
+# word_type | relatedness
+emm_eeg_wt_r  <- emmeans(model_eeg, pairwise ~ word_type | relatedness, adjust = "tukey")
+tab_eeg_c3    <- as.data.frame(summary(emm_eeg_wt_r$contrasts)) %>%
+  transmute(
+    `Contrast`    = contrast,
+    `Relatedness`  = relatedness,
+    `Estimate`     = round(estimate, 3),
+    `SE`           = round(SE, 3),
+    `gl`           = round(df, 1),
+    `z`            = round(z.ratio, 3),
+    `p adjusted`   = fmt_p(p.value)
+  )
+
+# relatedness | word_type
+emm_eeg_r_wt  <- emmeans(model_eeg, pairwise ~ relatedness | word_type, adjust = "tukey")
+tab_eeg_c4    <- as.data.frame(summary(emm_eeg_r_wt$contrasts)) %>%
+  transmute(
+    `Contrast`    = contrast,
+    `Word type`    = word_type,
+    `Estimate`     = round(estimate, 3),
+    `SE`           = round(SE, 3),
+    `gl`           = round(df, 1),
+    `z`            = round(z.ratio, 3),
+    `p adjusted`   = fmt_p(p.value)
+  )
+
+# -----------------------------------------------------------------------------
+# EXPORT TO WORD
+# -----------------------------------------------------------------------------
+
+doc <- read_docx()
+
+# Function to add a table + heading to the doc
+add_table_to_doc <- function(doc, df, titulo) {
+  doc <- doc %>%
+    body_add_par(titulo, style = "heading 2") %>%
+    body_add_flextable(make_ft(df, titulo)) %>%
+    body_add_par("", style = "Normal")   # blank line
+  doc
+}
+
+# --- Model 1: Accuracy (GLMM binomial) ---
+doc <- doc %>% body_add_par("Model 1: Accuracy (GLMM binomial)", style = "heading 1")
+doc <- add_table_to_doc(doc, tab_acc_fixed, "Table S1a. Fixed effects — Accuracy")
+doc <- add_table_to_doc(doc, tab_acc_re,    "Table S1b. Random effects — Accuracy")
+doc <- add_table_to_doc(doc, anova_acc,     "Table S1c. Type II ANOVA (Wald χ²) — Accuracy")
+doc <- add_table_to_doc(doc, tab_acc_c1,    "Table S1d. Contrasts: word_type (OR) — Accuracy")
+doc <- add_table_to_doc(doc, tab_acc_c2,    "Table S1e. Contrasts: word_type | relatedness (OR) — Accuracy")
+doc <- add_table_to_doc(doc, tab_acc_c3,    "Table S1f. Contrasts: relatedness | word_type (OR) — Accuracy")
+
+# --- Model 2: Reaction times (LMM, log-RT) ---
+doc <- doc %>% body_add_par("Model 2: Reaction Times (LMM, log-RT)", style = "heading 1")
+doc <- add_table_to_doc(doc, tab_rt_fixed, "Table S2a. Fixed effects — RT")
+doc <- add_table_to_doc(doc, tab_rt_re,   "Table S2b. Random effects — RT")
+doc <- add_table_to_doc(doc, anova_rt,    "Table S2c. Type II ANOVA (Wald χ²) — RT")
+doc <- add_table_to_doc(doc, tab_rt_c1,   "Table S2d. Contrasts: word_type (ratio) — RT")
+doc <- add_table_to_doc(doc, tab_rt_c2,   "Table S2e. Contrasts: word_type | relatedness (ratio) — RT")
+doc <- add_table_to_doc(doc, tab_rt_c3,   "Table S2f. Contrasts: relatedness (ratio) — RT")
+doc <- add_table_to_doc(doc, tab_rt_c4,   "Table S2g. Contrasts: relatedness | word_type (ratio) — RT")
+
+# --- Model 3: EEG amplitudes (glmmTMB) ---
+doc <- doc %>% body_add_par("Model 3: EEG Amplitudes (glmmTMB)", style = "heading 1")
+doc <- add_table_to_doc(doc, tab_eeg_fixed, "Table S3a. Fixed effects — EEG")
+doc <- add_table_to_doc(doc, tab_eeg_re,   "Table S3b. Random effects — EEG")
+doc <- add_table_to_doc(doc, anova_eeg,    "Table S3c. Type II ANOVA (Wald χ²) — EEG")
+doc <- add_table_to_doc(doc, tab_eeg_c1,   "Table S3d. Contrasts: word_type — EEG")
+doc <- add_table_to_doc(doc, tab_eeg_c2,   "Table S3e. Contrasts: relatedness — EEG")
+doc <- add_table_to_doc(doc, tab_eeg_c3,   "Table S3f. Contrasts: word_type | relatedness — EEG")
+doc <- add_table_to_doc(doc, tab_eeg_c4,   "Table S3g. Contrasts: relatedness | word_type — EEG")
+
+# Save
+print(doc, target = "supplementary_tables.docx")
+message("✓ File saved: supplementary_tables.docx")
