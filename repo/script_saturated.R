@@ -126,10 +126,11 @@ VarCorr(model_RT_sat)
 rePCA(model_RT_sat)
 isSingular(model_RT_sat)
 
-# Reduced model: drop interaction from RE
+# Reduced model: rePCA(sat) rank 5/6, then rank 3/4 on first reduction;
+# word_type slopes correlated at r=.997 → drop word_type from RE
 model_RT_red <- lmer(
   log(rt) ~ word_type * relatedness +
-    (1 + word_type + relatedness | subject) +
+    (1 + relatedness | subject) +
     (1 | item),
   data = df_filt, REML = TRUE)
 
@@ -205,6 +206,30 @@ data_filt <- data_filt %>%
 # MODEL 3: EEG AMPLITUDES — Gaussian GLMM (glmmTMB)
 # Note: rePCA() is lme4-specific and not available for glmmTMB.
 #       Use VarCorr() and inspect near-zero SDs manually.
+#
+# RE SIMPLIFICATION RESULTS BY WINDOW/ELECTRODE:
+# N400 Cz (0.3, Cz): base model (1|subject) + (1|item)
+#   - sat: near-perfect correlations throughout (r = .984, -.997, .987)
+#   - (1 + word_type + relatedness | subject): L2-Remote/relatedness r = -.983
+#   - (1 + word_type | subject): singular convergence (non-positive Hessian)
+#   - (1 + relatedness | subject): Intercept/relatedness r = -1.000
+#   - (1|subject) + (0 + relatedness|subject): relatedness SD ≈ 0 (.00032)
+#   → reported model = base
+# LPC  Cz (0.5, Cz): base model (1|subject) + (1|item)
+#   - sat: Intercept/L2-Recent r = -1.000, L2-Recent/L2-Remote r = 1.000
+#   - (1 + word_type + relatedness | subject): all correlations at ±1.000
+#   → reported model = base
+# N400 Pz (0.3, Pz): (1 + word_type || subject), no item
+#   - sat: near-perfect correlations (r = -.996, .998, .981); item SD ≈ 0
+#   - (1 + word_type + relatedness | subject): Intercept/relatedness r = .963; item SD ≈ 0
+#   - (1 + word_type | subject): singular convergence; item SD ≈ 0
+#   - (1 + word_type || subject): converged, clean VarCorr
+#   → reported model = (1 + word_type || subject), no (1|item)
+# LPC  Pz (0.5, Pz): base model (1|subject) + (1|item)
+#   - sat: singular convergence
+#   - most reduced converging model: (1 + word_type || subject) + (1|item)
+#   - AIC/BIC of reduced worse than base → base preferred
+#   → reported model = base
 # =============================================================================
 
 model_eeg_base <- glmmTMB(
@@ -221,22 +246,16 @@ model_eeg_sat <- glmmTMB(
   data = data_filt)
 
 # RE diagnostics on saturated (rePCA and allFit not available for glmmTMB)
-# If convergence warnings appear, inspect summary() and try:
-#   glmmTMB(..., control = glmmTMBControl(optimizer = optim, optArgs = list(method = "BFGS")))
 VarCorr(model_eeg_sat)
 
-# Reduced model: drop interaction from RE
-model_eeg_red <- glmmTMB(
-  mean_amplitude ~ word_type * relatedness +
-    (1 + word_type + relatedness | subject) +
-    (1 | item),
-  dispformula = ~ word_type * relatedness,
-  data = data_filt)
+# RE simplification: VarCorr(sat) showed near-perfect correlations throughout.
+# Stepwise reduction (word_type+relatedness, word_type only, relatedness only,
+# relatedness with ||) all produced singular convergence or SD≈0.
+# Data supports intercepts only → reported model = base.
+model_eeg_red <- model_eeg_base
 
-VarCorr(model_eeg_red)
-
-# LRT chain: base -> reduced -> saturated
-anova(model_eeg_base, model_eeg_red, model_eeg_sat)
+# LRT: base vs saturated (documents over-parameterization of sat)
+anova(model_eeg_base, model_eeg_sat)
 
 summary(model_eeg_red)
 Anova(model_eeg_red, type = "II")
