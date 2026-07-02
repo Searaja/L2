@@ -31,12 +31,36 @@ levels(df$relatedness)[levels(df$relatedness) == "right"] <- "Related"
 levels(df$relatedness)[levels(df$relatedness) == "left"]  <- "Unrelated"
 df$word_type <- factor(df$word_type, levels = c("L1", "L2-Remote", "L2-Recent"))
 
-k <- 5
+# =============================================================================
+# RT OUTLIER VISUALIZATION
+# Run these plots first, then set manual exclusions below before fitting models
+# =============================================================================
+
+print(
+  ggplot(df, aes(x = subject, y = rt)) +
+    geom_boxplot(outlier.colour = "red", outlier.size = 1) +
+    facet_wrap(~ word_type, ncol = 1) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7)) +
+    labs(title = "RT by subject", y = "RT (ms)")
+)
+
+print(
+  ggplot(df, aes(x = rt, fill = relatedness)) +
+    geom_histogram(bins = 80, alpha = 0.7, position = "identity") +
+    facet_wrap(~ word_type) +
+    theme_minimal() +
+    labs(title = "RT distribution by condition", x = "RT (ms)")
+)
+
+# --- MANUAL EXCLUSION — adjust after inspecting plots above ---
+rt_min <- 200    # lower cutoff (ms)
+rt_max <- 3000   # upper cutoff (ms)
+exclude_subjects_rt <- c()  # e.g. c("s01", "s05")
 
 df_filt <- df %>%
-  group_by(corrAns, categ) %>%
-  filter(abs(rt - mean(rt, na.rm = TRUE)) < k * sd(rt, na.rm = TRUE)) %>%
-  ungroup()
+  filter(rt >= rt_min, rt <= rt_max) %>%
+  filter(!subject %in% exclude_subjects_rt)
 
 
 # =============================================================================
@@ -58,7 +82,7 @@ model_Acc_sat <- glmer(
 fits_acc      <- allFit(model_Acc_sat)
 ss_acc        <- summary(fits_acc)
 print(ss_acc$which.OK)                          # which optimizers converged
-model_Acc_sat <- fits_acc[[which(ss_acc$which.OK)[1]]]  # use first converging
+model_Acc_sat <- fits_acc[[which(ss_acc$which.OK)[2]]]  # use first converging
 
 # RE diagnostics on saturated
 VarCorr(model_Acc_sat)
@@ -185,17 +209,41 @@ levels(data$relatedness)[levels(data$relatedness) == 0] <- "Unrelated"
 # 0.3 FOR N400 (300-500 ms); 0.5 FOR LPC (500-800 ms)
 
 data_filt <- data %>%
-  filter(window_start == 0.5, channel == "Pz")
+  filter(window_start == 0.3, channel == "Cz")
+
+# =============================================================================
+# EEG OUTLIER VISUALIZATION
+# Run these plots first, then set manual exclusions below before fitting models
+# =============================================================================
+
+print(
+  ggplot(data_filt, aes(x = subject, y = RT)) +
+    geom_boxplot(outlier.colour = "red", outlier.size = 1) +
+    facet_wrap(~ word_type, ncol = 1) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7)) +
+    labs(title = "RT by subject — EEG trials", y = "RT (ms)")
+)
+
+print(
+  ggplot(data_filt, aes(x = subject, y = mean_amplitude)) +
+    geom_boxplot(outlier.colour = "red", outlier.size = 1) +
+    facet_wrap(~ word_type + relatedness) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7)) +
+    labs(title = "Mean amplitude by subject", y = "µV")
+)
+
+# --- MANUAL EXCLUSION — adjust after inspecting plots above ---
+rt_min_eeg   <- 200   # lower RT cutoff (ms)
+rt_max_eeg   <- 2000  # upper RT cutoff (ms)
+amp_cutoff   <- Inf   # exclude trials with |mean_amplitude| > this value (µV)
+exclude_subjects_eeg <- c()  # e.g. c("s01", "s05")
 
 data_filt <- data_filt %>%
-  group_by(subject, word_type, relatedness) %>%
-  mutate(
-    media_rt = mean(RT, na.rm = TRUE),
-    sd_rt    = sd(RT, na.rm = TRUE)
-  ) %>%
-  filter(RT > media_rt - k * sd_rt,
-         RT < media_rt + k * sd_rt) %>%
-  ungroup()
+  filter(RT >= rt_min_eeg, RT <= rt_max_eeg) %>%
+  filter(abs(mean_amplitude) <= amp_cutoff) %>%
+  filter(!subject %in% exclude_subjects_eeg)
 
 data_filt <- data_filt %>%
   select(mean_amplitude, word_type, relatedness, subject, item) %>%
