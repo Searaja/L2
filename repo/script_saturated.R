@@ -31,6 +31,14 @@ levels(df$relatedness)[levels(df$relatedness) == "right"] <- "Related"
 levels(df$relatedness)[levels(df$relatedness) == "left"]  <- "Unrelated"
 df$word_type <- factor(df$word_type, levels = c("L1", "L2-Remote", "L2-Recent"))
 
+# Planned contrasts — levels: L1, L2-Remote, L2-Recent
+contrasts(df$word_type) <- cbind(
+  Remote_vs_Recent = c(0,    0.5,  -0.5),
+  L1_vs_L2         = c(2/3, -1/3,  -1/3)
+)
+# Levels: Unrelated, Related → β > 0 means Unrelated > Related
+contrasts(df$relatedness) <- c(0.5, -0.5)
+
 # =============================================================================
 # RT OUTLIER VISUALIZATION
 # Run these plots first, then set manual exclusions below before fitting models
@@ -203,6 +211,14 @@ levels(data$word_type)[levels(data$word_type) == "rec"] <- "L2-Recent"
 levels(data$word_type)[levels(data$word_type) == "esp"] <- "L1"
 levels(data$relatedness)[levels(data$relatedness) == 1] <- "Related"
 levels(data$relatedness)[levels(data$relatedness) == 0] <- "Unrelated"
+
+# Planned contrasts — levels: L1, L2-Recent, L2-Remote
+contrasts(data$word_type) <- cbind(
+  Remote_vs_Recent = c(0,    -0.5,  0.5),
+  L1_vs_L2         = c(2/3,  -1/3, -1/3)
+)
+# Levels: Unrelated, Related → β > 0 means Unrelated > Related
+contrasts(data$relatedness) <- c(0.5, -0.5)
 
 # CHANGE window_start AND channel TO SEE RESULTS FOR DIFFERENT
 # TIME WINDOWS AND ELECTRODE SITES:
