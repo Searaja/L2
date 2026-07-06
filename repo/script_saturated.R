@@ -37,7 +37,7 @@ contrasts(df$word_type) <- cbind(
   L1_vs_L2         = c(2/3, -1/3,  -1/3)
 )
 # Levels: Unrelated, Related → β > 0 means Unrelated > Related
-contrasts(df$relatedness) <- c(0.5, -0.5)
+contrasts(df$relatedness) <- cbind(Unrelated_vs_Related = c(0.5, -0.5))
 
 # =============================================================================
 # RT OUTLIER VISUALIZATION
@@ -50,7 +50,7 @@ print(
     facet_wrap(~ word_type, ncol = 1) +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7)) +
-    labs(title = "RT by subject", y = "RT (ms)")
+    labs(title = "RT by subject", y = "RT (s)")
 )
 
 print(
@@ -62,13 +62,20 @@ print(
 )
 
 # --- MANUAL EXCLUSION — adjust after inspecting plots above ---
-rt_min <- 200    # lower cutoff (ms)
-rt_max <- 3000   # upper cutoff (ms)
+rt_min <- 0.2    # lower cutoff (s)
+rt_max <- 3.0    # upper cutoff (s)
 exclude_subjects_rt <- c()  # e.g. c("s01", "s05")
 
 df_filt <- df %>%
   filter(rt >= rt_min, rt <= rt_max) %>%
-  filter(!subject %in% exclude_subjects_rt)
+  filter(!subject %in% exclude_subjects_rt) %>%
+  droplevels()
+
+contrasts(df_filt$word_type) <- cbind(
+  Remote_vs_Recent = c(0,    0.5,  -0.5),
+  L1_vs_L2         = c(2/3, -1/3,  -1/3)
+)
+contrasts(df_filt$relatedness) <- cbind(Unrelated_vs_Related = c(0.5, -0.5))
 
 
 # =============================================================================
@@ -238,7 +245,7 @@ print(
     facet_wrap(~ word_type, ncol = 1) +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7)) +
-    labs(title = "RT by subject — EEG trials", y = "RT (ms)")
+    labs(title = "RT by subject — EEG trials", y = "RT (s)")
 )
 
 print(
@@ -251,8 +258,8 @@ print(
 )
 
 # --- MANUAL EXCLUSION — adjust after inspecting plots above ---
-rt_min_eeg   <- 200   # lower RT cutoff (ms)
-rt_max_eeg   <- 2000  # upper RT cutoff (ms)
+rt_min_eeg   <- 0.2   # lower RT cutoff (s)
+rt_max_eeg   <- 2.0   # upper RT cutoff (s)
 amp_cutoff   <- Inf   # exclude trials with |mean_amplitude| > this value (µV)
 exclude_subjects_eeg <- c()  # e.g. c("s01", "s05")
 
@@ -263,7 +270,14 @@ data_filt <- data_filt %>%
 
 data_filt <- data_filt %>%
   select(mean_amplitude, word_type, relatedness, subject, item) %>%
-  na.omit()
+  na.omit() %>%
+  droplevels()
+
+contrasts(data_filt$word_type) <- cbind(
+  Remote_vs_Recent = c(0,    -0.5,  0.5),
+  L1_vs_L2         = c(2/3,  -1/3, -1/3)
+)
+contrasts(data_filt$relatedness) <- cbind(Unrelated_vs_Related = c(0.5, -0.5))
 
 
 # =============================================================================
