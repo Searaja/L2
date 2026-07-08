@@ -232,7 +232,7 @@ contrasts(data$relatedness) <- c(0.5, -0.5)
 # 0.3 FOR N400 (300-500 ms); 0.5 FOR LPC (500-800 ms)
 
 data_filt <- data %>%
-  filter(window_start == 0.3, channel == "Cz")
+  filter(window_start == 0.5, channel == "Pz")
 
 # =============================================================================
 # EEG OUTLIER VISUALIZATION
@@ -258,9 +258,9 @@ print(
 )
 
 # --- MANUAL EXCLUSION — adjust after inspecting plots above ---
-rt_min_eeg   <- 0.2   # lower RT cutoff (s)
-rt_max_eeg   <- 2.0   # upper RT cutoff (s)
-amp_cutoff   <- Inf   # exclude trials with |mean_amplitude| > this value (µV)
+rt_min_eeg   <- 0.2 *256   # lower RT cutoff (s *fs)
+rt_max_eeg   <- 3.0 *256  # upper RT cutoff (s *fs)
+amp_cutoff   <- 15   # exclude trials with |mean_amplitude| > this value (µV)
 exclude_subjects_eeg <- c()  # e.g. c("s01", "s05")
 
 data_filt <- data_filt %>%
