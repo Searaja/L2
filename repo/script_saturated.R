@@ -1,7 +1,6 @@
 # LIBRARIES
 
 library(modelsummary)
-library(car)
 library(lme4)
 library(lmerTest)
 library(dplyr)
@@ -13,6 +12,10 @@ library(DHARMa)
 library(broom.mixed)
 library(flextable)
 library(officer)
+library(pagedown)
+
+# TRUE = use pre-decided RE formulas (fast); FALSE = run full allFit/rePCA/LRT pipeline
+LOCK_MODELS <- TRUE
 
 
 # BEHAVIORAL DATA
@@ -80,110 +83,108 @@ contrasts(df_filt$relatedness) <- cbind(Unrelated_vs_Related = c(0.5, -0.5))
 
 # =============================================================================
 # MODEL 1: ACCURACY — Binomial GLMM (glmer)
+# Reduced RE: (1 + word_type + relatedness | subject) + (1 | item)
+# Rationale: rePCA(sat) rank 4/6; LRT base→red p<.001, red→sat p=.655
+# Optimizer: Nelder_Mead (bobyqa singular; Nelder_Mead converged clean)
 # =============================================================================
 
-model_Acc_base <- glmer(
-  accuracy ~ word_type * relatedness +
-    (1 | subject) + (1 | item),
-  data = df, family = binomial)
+if (LOCK_MODELS) {
+  model_Acc_red <- glmer(
+    accuracy ~ word_type * relatedness +
+      (1 + word_type + relatedness | subject) + (1 | item),
+    data = df, family = binomial,
+    control = glmerControl(optimizer = "Nelder_Mead"))
+} else {
+  model_Acc_base <- glmer(
+    accuracy ~ word_type * relatedness +
+      (1 | subject) + (1 | item),
+    data = df, family = binomial)
 
-model_Acc_sat <- glmer(
-  accuracy ~ word_type * relatedness +
-    (1 + word_type * relatedness | subject) +
-    (1 | item),
-  data = df, family = binomial)
+  model_Acc_sat <- glmer(
+    accuracy ~ word_type * relatedness +
+      (1 + word_type * relatedness | subject) + (1 | item),
+    data = df, family = binomial)
 
-# Try all available optimizers and pick the best-converging one
-fits_acc      <- allFit(model_Acc_sat)
-ss_acc        <- summary(fits_acc)
-print(ss_acc$which.OK)                          # which optimizers converged
-model_Acc_sat <- fits_acc[[which(ss_acc$which.OK)[2]]]  # use first converging
+  fits_acc      <- allFit(model_Acc_sat)
+  ss_acc        <- summary(fits_acc)
+  print(ss_acc$which.OK)
+  model_Acc_sat <- fits_acc[[which(ss_acc$which.OK)[2]]]
 
-# RE diagnostics on saturated
-VarCorr(model_Acc_sat)
-rePCA(model_Acc_sat)
-isSingular(model_Acc_sat)
+  VarCorr(model_Acc_sat)
+  rePCA(model_Acc_sat)
+  isSingular(model_Acc_sat)
 
-# Reduced model: drop interaction from RE (rePCA shows rank 4, not 6)
-model_Acc_red <- glmer(
-  accuracy ~ word_type * relatedness +
-    (1 + word_type + relatedness | subject) +
-    (1 | item),
-  data = df, family = binomial)
+  model_Acc_red <- glmer(
+    accuracy ~ word_type * relatedness +
+      (1 + word_type + relatedness | subject) + (1 | item),
+    data = df, family = binomial)
 
-fits_acc_red      <- allFit(model_Acc_red)
-ss_acc_red        <- summary(fits_acc_red)
-print(ss_acc_red$which.OK)
-model_Acc_red     <- fits_acc_red[[which(ss_acc_red$which.OK)[1]]]
+  fits_acc_red  <- allFit(model_Acc_red)
+  ss_acc_red    <- summary(fits_acc_red)
+  print(ss_acc_red$which.OK)
+  model_Acc_red <- fits_acc_red[[which(ss_acc_red$which.OK)[1]]]
 
-VarCorr(model_Acc_red)
-rePCA(model_Acc_red)
-isSingular(model_Acc_red)
+  VarCorr(model_Acc_red)
+  rePCA(model_Acc_red)
+  isSingular(model_Acc_red)
 
-# LRT chain: base -> reduced -> saturated
-anova(model_Acc_base, model_Acc_red, model_Acc_sat)
+  anova(model_Acc_base, model_Acc_red, model_Acc_sat)
+}
 
 summary(model_Acc_red)
-Anova(model_Acc_red, type = "II")
 
 sim_res_acc <- simulateResiduals(model_Acc_red)
-plot(sim_res_acc)
-
-# Interactions
-p <- emmip(model_Acc_red, relatedness ~ word_type)
-print(p + ggplot2::ggtitle("Accuracy — reduced RE"))
-emmeans(model_Acc_red, pairwise ~ word_type,               type = "response")
-emmeans(model_Acc_red, pairwise ~ word_type | relatedness, type = "response")
-pairs(emmeans(model_Acc_red, ~ relatedness | word_type,    type = "response"))
+dev.new(); plot(sim_res_acc)
 
 
 # =============================================================================
 # MODEL 2: RT — LMM on log-RT (lmer, replaces nlme::lme)
-# Correct answers only, RT < 2.5 SD from mean — same filtering as script.R
-# Note: heterogeneous variance (varIdent) is dropped; focus is RE structure
+# Reduced RE: (1 + relatedness | subject) + (1 | item)
+# Rationale: rePCA(sat) rank 5/6; word_type slopes r=.997 → dropped
+#            LRT base→red p<.001; sat singular → red is reported model
 # =============================================================================
 
-model_RT_base <- lmer(
-  log(rt) ~ word_type * relatedness +
-    (1 | subject) + (1 | item),
-  data = df_filt, REML = TRUE)
+if (LOCK_MODELS) {
+  model_RT_red <- lmer(
+    log(rt) ~ word_type * relatedness +
+      (1 + relatedness | subject) + (1 | item),
+    data = df_filt, REML = TRUE)
+} else {
+  model_RT_base <- lmer(
+    log(rt) ~ word_type * relatedness +
+      (1 | subject) + (1 | item),
+    data = df_filt, REML = TRUE)
 
-model_RT_sat <- lmer(
-  log(rt) ~ word_type * relatedness +
-    (1 + word_type * relatedness | subject) +
-    (1 | item),
-  data = df_filt, REML = TRUE)
+  model_RT_sat <- lmer(
+    log(rt) ~ word_type * relatedness +
+      (1 + word_type * relatedness | subject) + (1 | item),
+    data = df_filt, REML = TRUE)
 
-# Try all available optimizers and pick the best-converging one
-fits_rt      <- allFit(model_RT_sat)
-ss_rt        <- summary(fits_rt)
-print(ss_rt$which.OK)
-model_RT_sat <- fits_rt[[which(ss_rt$which.OK)[1]]]
+  fits_rt      <- allFit(model_RT_sat)
+  ss_rt        <- summary(fits_rt)
+  print(ss_rt$which.OK)
+  model_RT_sat <- fits_rt[[which(ss_rt$which.OK)[1]]]
 
-# RE diagnostics on saturated
-VarCorr(model_RT_sat)
-rePCA(model_RT_sat)
-isSingular(model_RT_sat)
+  VarCorr(model_RT_sat)
+  rePCA(model_RT_sat)
+  isSingular(model_RT_sat)
 
-# Reduced model: rePCA(sat) rank 5/6, then rank 3/4 on first reduction;
-# word_type slopes correlated at r=.997 → drop word_type from RE
-model_RT_red <- lmer(
-  log(rt) ~ word_type * relatedness +
-    (1 + relatedness | subject) +
-    (1 | item),
-  data = df_filt, REML = TRUE)
+  model_RT_red <- lmer(
+    log(rt) ~ word_type * relatedness +
+      (1 + relatedness | subject) + (1 | item),
+    data = df_filt, REML = TRUE)
 
-fits_rt_red      <- allFit(model_RT_red)
-ss_rt_red        <- summary(fits_rt_red)
-print(ss_rt_red$which.OK)
-model_RT_red     <- fits_rt_red[[which(ss_rt_red$which.OK)[1]]]
+  fits_rt_red  <- allFit(model_RT_red)
+  ss_rt_red    <- summary(fits_rt_red)
+  print(ss_rt_red$which.OK)
+  model_RT_red <- fits_rt_red[[which(ss_rt_red$which.OK)[1]]]
 
-VarCorr(model_RT_red)
-rePCA(model_RT_red)
-isSingular(model_RT_red)
+  VarCorr(model_RT_red)
+  rePCA(model_RT_red)
+  isSingular(model_RT_red)
 
-# LRT chain: base -> reduced -> saturated
-anova(model_RT_base, model_RT_red, model_RT_sat)
+  anova(model_RT_base, model_RT_red, model_RT_sat)
+}
 
 summary(model_RT_red)
 
@@ -191,14 +192,6 @@ res_rt <- residuals(model_RT_red)
 qqnorm(res_rt); qqline(res_rt)
 plot(fitted(model_RT_red), res_rt); abline(h = 0)
 
-Anova(model_RT_red, type = "II")
-
-p <- emmip(model_RT_red, relatedness ~ word_type)
-print(p + ggplot2::ggtitle("RT — reduced RE"))
-emmeans(model_RT_red, pairwise ~ word_type,               type = "response")
-emmeans(model_RT_red, pairwise ~ word_type | relatedness, type = "response")
-emmeans(model_RT_red, pairwise ~ relatedness,             type = "response")
-emmeans(model_RT_red, pairwise ~ relatedness | word_type, type = "response")
 
 
 # =============================================================================
@@ -219,69 +212,14 @@ levels(data$word_type)[levels(data$word_type) == "esp"] <- "L1"
 levels(data$relatedness)[levels(data$relatedness) == 1] <- "Related"
 levels(data$relatedness)[levels(data$relatedness) == 0] <- "Unrelated"
 
-# Planned contrasts — levels: L1, L2-Recent, L2-Remote
-contrasts(data$word_type) <- cbind(
-  Remote_vs_Recent = c(0,    -0.5,  0.5),
-  L1_vs_L2         = c(2/3,  -1/3, -1/3)
-)
-# Levels: Unrelated, Related → β > 0 means Unrelated > Related
-contrasts(data$relatedness) <- c(0.5, -0.5)
-
-# CHANGE window_start AND channel TO SEE RESULTS FOR DIFFERENT
-# TIME WINDOWS AND ELECTRODE SITES:
-# 0.3 FOR N400 (300-500 ms); 0.5 FOR LPC (500-800 ms)
-
-data_filt <- data %>%
-  filter(window_start == 0.5, channel == "Pz")
+# --- MANUAL EXCLUSION cutoffs (applied per window×electrode below) ---
+rt_min_eeg           <- 0.2 * 256  # lower RT cutoff (s * fs)
+rt_max_eeg           <- 3.0 * 256  # upper RT cutoff (s * fs)
+amp_cutoff           <- 15          # exclude |mean_amplitude| > this (µV)
+exclude_subjects_eeg <- c()         # e.g. c("s01", "s05")
 
 # =============================================================================
-# EEG OUTLIER VISUALIZATION
-# Run these plots first, then set manual exclusions below before fitting models
-# =============================================================================
-
-print(
-  ggplot(data_filt, aes(x = subject, y = RT)) +
-    geom_boxplot(outlier.colour = "red", outlier.size = 1) +
-    facet_wrap(~ word_type, ncol = 1) +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7)) +
-    labs(title = "RT by subject — EEG trials", y = "RT (s)")
-)
-
-print(
-  ggplot(data_filt, aes(x = subject, y = mean_amplitude)) +
-    geom_boxplot(outlier.colour = "red", outlier.size = 1) +
-    facet_wrap(~ word_type + relatedness) +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7)) +
-    labs(title = "Mean amplitude by subject", y = "µV")
-)
-
-# --- MANUAL EXCLUSION — adjust after inspecting plots above ---
-rt_min_eeg   <- 0.2 *256   # lower RT cutoff (s *fs)
-rt_max_eeg   <- 3.0 *256  # upper RT cutoff (s *fs)
-amp_cutoff   <- 15   # exclude trials with |mean_amplitude| > this value (µV)
-exclude_subjects_eeg <- c()  # e.g. c("s01", "s05")
-
-data_filt <- data_filt %>%
-  filter(RT >= rt_min_eeg, RT <= rt_max_eeg) %>%
-  filter(abs(mean_amplitude) <= amp_cutoff) %>%
-  filter(!subject %in% exclude_subjects_eeg)
-
-data_filt <- data_filt %>%
-  select(mean_amplitude, word_type, relatedness, subject, item) %>%
-  na.omit() %>%
-  droplevels()
-
-contrasts(data_filt$word_type) <- cbind(
-  Remote_vs_Recent = c(0,    -0.5,  0.5),
-  L1_vs_L2         = c(2/3,  -1/3, -1/3)
-)
-contrasts(data_filt$relatedness) <- cbind(Unrelated_vs_Related = c(0.5, -0.5))
-
-
-# =============================================================================
-# MODEL 3: EEG AMPLITUDES — Gaussian GLMM (glmmTMB)
+# MODELS 3–6: EEG AMPLITUDES — Gaussian GLMM (glmmTMB)
 # Note: rePCA() is lme4-specific and not available for glmmTMB.
 #       Use VarCorr() and inspect near-zero SDs manually.
 #
@@ -310,58 +248,80 @@ contrasts(data_filt$relatedness) <- cbind(Unrelated_vs_Related = c(0.5, -0.5))
 #   → reported model = base
 # =============================================================================
 
-model_eeg_base <- glmmTMB(
-  mean_amplitude ~ word_type * relatedness +
-    (1 | subject) + (1 | item),
-  dispformula = ~ word_type * relatedness,
-  data = data_filt)
+# Locked RE formulas — established from VarCorr/AIC diagnostics (see comments above)
+eeg_locked_formulas <- list(
+  N400_Cz = mean_amplitude ~ word_type * relatedness + (1 | subject) + (1 | item),
+  LPC_Cz  = mean_amplitude ~ word_type * relatedness + (1 | subject) + (1 | item),
+  N400_Pz = mean_amplitude ~ word_type * relatedness + (1 + word_type || subject),
+  LPC_Pz  = mean_amplitude ~ word_type * relatedness + (1 | subject) + (1 | item)
+)
 
-model_eeg_sat <- glmmTMB(
-  mean_amplitude ~ word_type * relatedness +
-    (1 + word_type * relatedness | subject) +
-    (1 | item),
-  dispformula = ~ word_type * relatedness,
-  data = data_filt)
+eeg_configs <- list(
+  N400_Cz = list(win = 0.3, ch = "Cz"),
+  LPC_Cz  = list(win = 0.5, ch = "Cz"),
+  N400_Pz = list(win = 0.3, ch = "Pz"),
+  LPC_Pz  = list(win = 0.5, ch = "Pz")
+)
 
-# RE diagnostics on saturated (rePCA and allFit not available for glmmTMB)
-VarCorr(model_eeg_sat)
+eeg_models <- list()
 
-# RE simplification: VarCorr(sat) showed near-perfect correlations throughout.
-# Stepwise reduction (word_type+relatedness, word_type only, relatedness only,
-# relatedness with ||) all produced singular convergence or SD≈0.
-# Data supports intercepts only → reported model = base.
-model_eeg_red <- model_eeg_base
+for (nm in names(eeg_configs)) {
+  cfg <- eeg_configs[[nm]]
 
-# LRT: base vs saturated (documents over-parameterization of sat)
-anova(model_eeg_base, model_eeg_sat)
+  d <- data %>%
+    filter(window_start == cfg$win, channel == cfg$ch) %>%
+    filter(RT >= rt_min_eeg, RT <= rt_max_eeg) %>%
+    filter(abs(mean_amplitude) <= amp_cutoff) %>%
+    filter(!subject %in% exclude_subjects_eeg) %>%
+    select(mean_amplitude, word_type, relatedness, subject, item) %>%
+    na.omit() %>%
+    droplevels()
 
-summary(model_eeg_red)
-Anova(model_eeg_red, type = "II")
+  contrasts(d$word_type) <- cbind(
+    Remote_vs_Recent = c(0,   -0.5,  0.5),
+    L1_vs_L2         = c(2/3, -1/3, -1/3)
+  )
+  contrasts(d$relatedness) <- cbind(Unrelated_vs_Related = c(0.5, -0.5))
 
-sim_res_eeg <- simulateResiduals(model_eeg_red)
-plot(sim_res_eeg)
+  if (LOCK_MODELS) {
+    m_red <- glmmTMB(
+      eeg_locked_formulas[[nm]],
+      dispformula = ~ word_type * relatedness,
+      data = d)
+  } else {
+    m_base <- glmmTMB(
+      mean_amplitude ~ word_type * relatedness + (1 | subject) + (1 | item),
+      dispformula = ~ word_type * relatedness, data = d)
+    m_sat <- glmmTMB(
+      mean_amplitude ~ word_type * relatedness +
+        (1 + word_type * relatedness | subject) + (1 | item),
+      dispformula = ~ word_type * relatedness, data = d)
+    cat("\n---", nm, "VarCorr(sat) ---\n")
+    print(VarCorr(m_sat))
+    cat("\n---", nm, "LRT base vs sat ---\n")
+    print(anova(m_base, m_sat))
+    m_red <- m_base  # update to winning formula after inspecting output above
+  }
 
-emm_eeg <- emmeans(model_eeg_red, ~ word_type * relatedness)
-plot(emm_eeg)
+  cat("\n===", nm, "===\n")
+  print(summary(m_red))
 
-emmeans(model_eeg_red, pairwise ~ word_type,               adjust = "tukey")
-emmeans(model_eeg_red, pairwise ~ relatedness,             adjust = "tukey")
-emmeans(model_eeg_red, pairwise ~ word_type | relatedness, adjust = "tukey")
-emmeans(model_eeg_red, pairwise ~ relatedness | word_type, adjust = "tukey")
+  sim_res <- simulateResiduals(m_red)
+  dev.new(); plot(sim_res, main = nm)
 
-res_eeg <- residuals(model_eeg_red)
-qqnorm(res_eeg); qqline(res_eeg)
-plot(fitted(model_eeg_red), res_eeg); abline(h = 0)
+  res_e <- residuals(m_red)
+  qqnorm(res_e, main = paste("QQ —", nm)); qqline(res_e)
+  plot(fitted(m_red), res_e, main = paste("Fitted vs Resid —", nm)); abline(h = 0)
+
+  eeg_models[[nm]] <- list(model = m_red, data = d)
+}
 
 
 # =============================================================================
 # SUPPLEMENTARY TABLES
-# Models: model_Acc_red (glmer), model_RT_red (lmer), model_eeg_red (glmmTMB)
+# Models: model_Acc_red (glmer), model_RT_red (lmer), eeg_models (glmmTMB × 4)
+# Tables: fixed effects, random effects, Type II ANOVA only (no post-hoc)
 # =============================================================================
-
-round_df <- function(df, digits = 3) {
-  df %>% mutate(across(where(is.numeric), ~ round(.x, digits)))
-}
 
 fmt_p <- function(p) {
   case_when(
@@ -373,7 +333,7 @@ fmt_p <- function(p) {
 }
 
 make_ft <- function(df, caption = "") {
-  ft <- flextable(df) %>%
+  flextable(df) %>%
     set_caption(caption) %>%
     bold(part = "header") %>%
     hline_top(part = "header", border = fp_border(width = 1.5)) %>%
@@ -384,7 +344,6 @@ make_ft <- function(df, caption = "") {
     fontsize(size = 10, part = "all") %>%
     align(align = "center", part = "all") %>%
     align(j = 1, align = "left", part = "body")
-  ft
 }
 
 # -----------------------------------------------------------------------------
@@ -396,44 +355,17 @@ tidy_acc <- tidy(model_Acc_red, effects = "fixed", conf.int = TRUE, conf.level =
 tab_acc_fixed <- tidy_acc %>%
   transmute(
     `Predictor`    = term,
-    `B`            = estimate,
-    `SE`           = std.error,
-    `95% CI lower` = conf.low,
-    `95% CI upper` = conf.high,
-    `z`            = statistic,
+    `B`            = round(estimate, 3),
+    `SE`           = round(std.error, 3),
+    `95% CI lower` = round(conf.low, 3),
+    `95% CI upper` = round(conf.high, 3),
+    `z`            = round(statistic, 3),
     `p`            = fmt_p(p.value)
-  ) %>%
-  round_df(3)
-tab_acc_fixed$p <- fmt_p(tidy_acc$p.value)
+  )
 
 tidy_acc_re <- tidy(model_Acc_red, effects = "ran_pars")
 tab_acc_re <- tidy_acc_re %>%
   transmute(`Group` = group, `Term` = term, `SD` = round(estimate, 3))
-
-anova_acc <- Anova(model_Acc_red, type = "II") %>%
-  as.data.frame() %>%
-  tibble::rownames_to_column("Effect") %>%
-  rename(`Chi²` = Chisq, `gl` = Df, `p` = `Pr(>Chisq)`) %>%
-  mutate(`Chi²` = round(`Chi²`, 3), `p` = fmt_p(`p`))
-
-# Contrasts
-emm_acc_wt   <- emmeans(model_Acc_red, pairwise ~ word_type, type = "response")
-tab_acc_c1   <- as.data.frame(summary(emm_acc_wt$contrasts)) %>%
-  transmute(`Contrast` = contrast, `OR` = round(odds.ratio, 3),
-            `SE` = round(SE, 3), `z` = round(z.ratio, 3),
-            `p adjusted` = fmt_p(p.value))
-
-emm_acc_wt_r <- emmeans(model_Acc_red, pairwise ~ word_type | relatedness, type = "response")
-tab_acc_c2   <- as.data.frame(summary(emm_acc_wt_r$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Relatedness` = relatedness,
-            `OR` = round(odds.ratio, 3), `SE` = round(SE, 3),
-            `z` = round(z.ratio, 3), `p adjusted` = fmt_p(p.value))
-
-emm_acc_r_wt <- emmeans(model_Acc_red, pairwise ~ relatedness | word_type, type = "response")
-tab_acc_c3   <- as.data.frame(summary(emm_acc_r_wt$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Word type` = word_type,
-            `OR` = round(odds.ratio, 3), `SE` = round(SE, 3),
-            `z` = round(z.ratio, 3), `p adjusted` = fmt_p(p.value))
 
 # -----------------------------------------------------------------------------
 # 2. model_RT_red — LMM (lmer, log-RT)
@@ -457,137 +389,57 @@ tidy_rt_re <- tidy(model_RT_red, effects = "ran_pars")
 tab_rt_re <- tidy_rt_re %>%
   transmute(`Group` = group, `Term` = term, `SD` = round(estimate, 3))
 
-anova_rt <- Anova(model_RT_red, type = "II") %>%
-  as.data.frame() %>%
-  tibble::rownames_to_column("Effect") %>%
-  rename(`Chi²` = Chisq, `df` = Df, `p_raw` = `Pr(>Chisq)`) %>%
-  mutate(`Chi²` = round(`Chi²`, 3), `p` = fmt_p(p_raw)) %>%
-  select(Effect, `Chi²`, df, p)
-
-# Contrasts
-emm_rt_wt   <- emmeans(model_RT_red, pairwise ~ word_type, type = "response")
-tab_rt_c1   <- as.data.frame(summary(emm_rt_wt$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Ratio` = round(ratio, 3),
-            `SE` = round(SE, 3), `gl` = round(df, 1),
-            `t` = round(t.ratio, 3), `p adjusted` = fmt_p(p.value))
-
-emm_rt_wt_r <- emmeans(model_RT_red, pairwise ~ word_type | relatedness, type = "response")
-tab_rt_c2   <- as.data.frame(summary(emm_rt_wt_r$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Relatedness` = relatedness,
-            `Ratio` = round(ratio, 3), `SE` = round(SE, 3),
-            `gl` = round(df, 1), `t` = round(t.ratio, 3),
-            `p adjusted` = fmt_p(p.value))
-
-emm_rt_r    <- emmeans(model_RT_red, pairwise ~ relatedness, type = "response")
-tab_rt_c3   <- as.data.frame(summary(emm_rt_r$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Ratio` = round(ratio, 3),
-            `SE` = round(SE, 3), `gl` = round(df, 1),
-            `t` = round(t.ratio, 3), `p adjusted` = fmt_p(p.value))
-
-emm_rt_r_wt <- emmeans(model_RT_red, pairwise ~ relatedness | word_type, type = "response")
-tab_rt_c4   <- as.data.frame(summary(emm_rt_r_wt$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Word type` = word_type,
-            `Ratio` = round(ratio, 3), `SE` = round(SE, 3),
-            `gl` = round(df, 1), `t` = round(t.ratio, 3),
-            `p adjusted` = fmt_p(p.value))
-
 # -----------------------------------------------------------------------------
-# 3. model_eeg_red — Gaussian GLMM (glmmTMB)
+# 3–6. eeg_models — Gaussian GLMM (glmmTMB), one per window×electrode
 # -----------------------------------------------------------------------------
 
-tidy_eeg <- tidy(model_eeg_red, effects = "fixed", component = "cond",
-                 conf.int = TRUE, conf.level = 0.95)
+eeg_table_prefixes <- c(N400_Cz = "S3", LPC_Cz = "S4", N400_Pz = "S5", LPC_Pz = "S6")
 
-tab_eeg_fixed <- tidy_eeg %>%
-  transmute(
-    `Predictor`    = term,
-    `B`            = round(estimate, 3),
-    `SE`           = round(std.error, 3),
-    `95% CI lower` = round(conf.low, 3),
-    `95% CI upper` = round(conf.high, 3),
-    `z`            = round(statistic, 3),
-    `p`            = fmt_p(p.value)
-  )
+eeg_table_list <- list()
 
-tidy_eeg_re <- tidy(model_eeg_red, effects = "ran_pars", component = "cond")
-tab_eeg_re <- tidy_eeg_re %>%
-  transmute(`Group` = group, `Term` = term, `SD` = round(estimate, 3))
+for (nm in names(eeg_models)) {
+  m      <- eeg_models[[nm]]$model
+  label  <- gsub("_", " ", nm)
+  prefix <- eeg_table_prefixes[nm]
 
-anova_eeg <- Anova(model_eeg_red, type = "II") %>%
-  as.data.frame() %>%
-  tibble::rownames_to_column("Effect") %>%
-  rename(`Chi²` = Chisq, `gl` = Df, `p` = `Pr(>Chisq)`) %>%
-  mutate(`Chi²` = round(`Chi²`, 3), `p` = fmt_p(`p`))
+  tidy_e  <- tidy(m, effects = "fixed",    component = "cond", conf.int = TRUE, conf.level = 0.95)
+  tidy_re <- tidy(m, effects = "ran_pars", component = "cond")
 
-# Contrasts
-emm_eeg_wt   <- emmeans(model_eeg_red, pairwise ~ word_type,               adjust = "tukey")
-tab_eeg_c1   <- as.data.frame(summary(emm_eeg_wt$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Estimate` = round(estimate, 3),
-            `SE` = round(SE, 3), `gl` = round(df, 1),
-            `z` = round(z.ratio, 3), `p adjusted` = fmt_p(p.value))
+  tab_fixed <- tidy_e %>%
+    transmute(
+      `Predictor`    = term,
+      `B`            = round(estimate, 3),
+      `SE`           = round(std.error, 3),
+      `95% CI lower` = round(conf.low, 3),
+      `95% CI upper` = round(conf.high, 3),
+      `z`            = round(statistic, 3),
+      `p`            = fmt_p(p.value)
+    )
 
-emm_eeg_r    <- emmeans(model_eeg_red, pairwise ~ relatedness,             adjust = "tukey")
-tab_eeg_c2   <- as.data.frame(summary(emm_eeg_r$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Estimate` = round(estimate, 3),
-            `SE` = round(SE, 3), `gl` = round(df, 1),
-            `z` = round(z.ratio, 3), `p adjusted` = fmt_p(p.value))
+  tab_re <- tidy_re %>%
+    transmute(`Group` = group, `Term` = term, `SD` = round(estimate, 3))
 
-emm_eeg_wt_r <- emmeans(model_eeg_red, pairwise ~ word_type | relatedness, adjust = "tukey")
-tab_eeg_c3   <- as.data.frame(summary(emm_eeg_wt_r$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Relatedness` = relatedness,
-            `Estimate` = round(estimate, 3), `SE` = round(SE, 3),
-            `gl` = round(df, 1), `z` = round(z.ratio, 3),
-            `p adjusted` = fmt_p(p.value))
-
-emm_eeg_r_wt <- emmeans(model_eeg_red, pairwise ~ relatedness | word_type, adjust = "tukey")
-tab_eeg_c4   <- as.data.frame(summary(emm_eeg_r_wt$contrasts)) %>%
-  transmute(`Contrast` = contrast, `Word type` = word_type,
-            `Estimate` = round(estimate, 3), `SE` = round(SE, 3),
-            `gl` = round(df, 1), `z` = round(z.ratio, 3),
-            `p adjusted` = fmt_p(p.value))
-
-# -----------------------------------------------------------------------------
-# EXPORT TO WORD
-# -----------------------------------------------------------------------------
-
-doc <- read_docx()
-
-add_table_to_doc <- function(doc, df, titulo) {
-  doc <- doc %>%
-    body_add_par(titulo, style = "heading 2") %>%
-    body_add_flextable(make_ft(df, titulo)) %>%
-    body_add_par("", style = "Normal")
-  doc
+  eeg_table_list[[paste0(nm, "_fixed")]] <-
+    make_ft(tab_fixed, sprintf("Table %sa. Fixed effects — EEG %s", prefix, label))
+  eeg_table_list[[paste0(nm, "_re")]] <-
+    make_ft(tab_re, sprintf("Table %sb. Random effects — EEG %s", prefix, label))
 }
 
-# --- Model 1: Accuracy ---
-doc <- doc %>% body_add_par("Model 1: Accuracy (GLMM binomial — reduced RE)", style = "heading 1")
-doc <- add_table_to_doc(doc, tab_acc_fixed, "Table S1a. Fixed effects — Accuracy")
-doc <- add_table_to_doc(doc, tab_acc_re,    "Table S1b. Random effects — Accuracy")
-doc <- add_table_to_doc(doc, anova_acc,     "Table S1c. Type II ANOVA (Wald χ²) — Accuracy")
-doc <- add_table_to_doc(doc, tab_acc_c1,    "Table S1d. Contrasts: word_type (OR) — Accuracy")
-doc <- add_table_to_doc(doc, tab_acc_c2,    "Table S1e. Contrasts: word_type | relatedness (OR) — Accuracy")
-doc <- add_table_to_doc(doc, tab_acc_c3,    "Table S1f. Contrasts: relatedness | word_type (OR) — Accuracy")
+# -----------------------------------------------------------------------------
+# EXPORT TO PDF (requires webshot2 + Chrome)
+# -----------------------------------------------------------------------------
 
-# --- Model 2: RT ---
-doc <- doc %>% body_add_par("Model 2: Reaction Times (LMM, log-RT — reduced RE)", style = "heading 1")
-doc <- add_table_to_doc(doc, tab_rt_fixed, "Table S2a. Fixed effects — RT")
-doc <- add_table_to_doc(doc, tab_rt_re,    "Table S2b. Random effects — RT")
-doc <- add_table_to_doc(doc, anova_rt,     "Table S2c. Type II ANOVA (Wald χ²) — RT")
-doc <- add_table_to_doc(doc, tab_rt_c1,    "Table S2d. Contrasts: word_type (ratio) — RT")
-doc <- add_table_to_doc(doc, tab_rt_c2,    "Table S2e. Contrasts: word_type | relatedness (ratio) — RT")
-doc <- add_table_to_doc(doc, tab_rt_c3,    "Table S2f. Contrasts: relatedness (ratio) — RT")
-doc <- add_table_to_doc(doc, tab_rt_c4,    "Table S2g. Contrasts: relatedness | word_type (ratio) — RT")
+tables_pdf <- c(
+  list(
+    "Table S1a. Fixed effects — Accuracy"  = make_ft(tab_acc_fixed, "Table S1a. Fixed effects — Accuracy"),
+    "Table S1b. Random effects — Accuracy" = make_ft(tab_acc_re,    "Table S1b. Random effects — Accuracy"),
+    "Table S2a. Fixed effects — RT"        = make_ft(tab_rt_fixed,  "Table S2a. Fixed effects — RT"),
+    "Table S2b. Random effects — RT"       = make_ft(tab_rt_re,     "Table S2b. Random effects — RT")
+  ),
+  eeg_table_list
+)
 
-# --- Model 3: EEG ---
-doc <- doc %>% body_add_par("Model 3: EEG Amplitudes (glmmTMB — reduced RE)", style = "heading 1")
-doc <- add_table_to_doc(doc, tab_eeg_fixed, "Table S3a. Fixed effects — EEG")
-doc <- add_table_to_doc(doc, tab_eeg_re,    "Table S3b. Random effects — EEG")
-doc <- add_table_to_doc(doc, anova_eeg,     "Table S3c. Type II ANOVA (Wald χ²) — EEG")
-doc <- add_table_to_doc(doc, tab_eeg_c1,    "Table S3d. Contrasts: word_type — EEG")
-doc <- add_table_to_doc(doc, tab_eeg_c2,    "Table S3e. Contrasts: relatedness — EEG")
-doc <- add_table_to_doc(doc, tab_eeg_c3,    "Table S3f. Contrasts: word_type | relatedness — EEG")
-doc <- add_table_to_doc(doc, tab_eeg_c4,    "Table S3g. Contrasts: relatedness | word_type — EEG")
-
-print(doc, target = "supplementary_tables_saturated.docx")
-message("✓ File saved: supplementary_tables_saturated.docx")
+do.call(save_as_html, c(tables_pdf, list(path = "supplementary_tables_saturated.html")))
+chrome_print("supplementary_tables_saturated.html",
+             output = "supplementary_tables_saturated.pdf")
+message("✓ File saved: supplementary_tables_saturated.pdf")
