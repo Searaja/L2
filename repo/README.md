@@ -14,7 +14,6 @@ The project investigates ERP responses (e.g., N400, LPC) in a semantic decision 
 │
 ├── tables/
 │   ├── *.pdf         # Summary tables reported in the manuscript
-│   ├── *.xlsx        # Tables in editable format
 │
 ├── README.md
 
@@ -57,10 +56,10 @@ Generates the results reported in the manuscript
 
 📊 Data description
 -EEG data
--17 participants
+-24 participants (21 EEG participant files)
 -Preprocessed epoch files (.fif)
 -One file per subject
--ERP dataset (eeg_data.csv). Values reported here were obtained by computing the mean amplitude
+-ERP dataset (epoch_amplitudes.csv). Values reported here were obtained by computing the mean amplitude
 of the respective epoch on the electrodes and time windows reported in the manuscript.
 
 Contains trial-level ERP measures used in statistical analyses.
@@ -78,17 +77,15 @@ Behavioral dataset (behavioral.csv)
 
 Includes:
 
-Reaction times (RTs)
+Response times (RTs)
 Accuracy
 
 📈 Statistical analysis
 
 ERP and behavioral data were analyzed using linear mixed-effects models.
 
-Fixed effects: Word Type, Relatedness, and their interaction
+Fixed effects: Word Type (L1 vs L2; L2 Recent vs L2 Remote), Relatedness, and their interaction
 Random effects: Subject and Item
-
-Post hoc comparisons were computed using emmeans.
 
 🔍 Reproducibility notes
 The repository includes preprocessed EEG data only.
