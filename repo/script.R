@@ -222,7 +222,7 @@ dev.new(); plot(fitted(model_RT_red), res_rt); abline(h = 0)
 # EEG DATA
 # =============================================================================
 
-data <- read.csv("../epoch_amplitudes.csv", header = TRUE)
+data <- read.csv("data/epoch_amplitudes.csv", header = TRUE)
 
 data$subject    <- as.factor(data$subject)
 data$item       <- as.factor(data$item)
@@ -241,6 +241,7 @@ levels(data$relatedness)[levels(data$relatedness) == 0] <- "Unrelated"
 rt_min_eeg           <- 0.2 * 256  # lower RT cutoff (s * fs)
 rt_max_eeg           <- 3.0 * 256  # upper RT cutoff (s * fs)
 amp_cutoff           <- 15          # exclude |mean_amplitude| > this (µV)
+exclude_subjects_eeg <- c()        # e.g. c("008", "016"); referenced below
 
 # =============================================================================
 # MODELS 3–6: EEG AMPLITUDES — Gaussian GLMM (glmmTMB)
@@ -367,8 +368,8 @@ for (nm in names(eeg_configs)) {
 }
 
 rej_log <- bind_rows(behav_rej_log, bind_rows(eeg_rej_logs))
-write.csv(rej_log, "trial_rejection_log_n21.csv", row.names = FALSE)
-cat("Trial rejection log written to trial_rejection_log_n21.csv\n")
+# write.csv(rej_log, "trial_rejection_log.csv", row.names = FALSE)
+# cat("Trial rejection log written to trial_rejection_log.csv\n")
 
 # =============================================================================
 # SUPPLEMENTARY TABLES
@@ -546,6 +547,7 @@ html_parts <- lapply(names(tables_pdf), function(nm) {
   )
 })
 
+supp_html <- tempfile(fileext = ".html")
 htmltools::save_html(
   htmltools::tags$html(
     htmltools::tags$head(
@@ -554,9 +556,8 @@ htmltools::save_html(
     ),
     htmltools::tags$body(html_parts)
   ),
-  "supplementary_tables_n21.html"
+  supp_html
 )
 
-chrome_print("supplementary_tables_n21.html",
-             output = "supplementary_tables_n21.pdf")
-message("File saved: supplementary_tables_n21.pdf")
+chrome_print(supp_html, output = "tables/Supplementary_Table_3.pdf")
+message("File saved: tables/Supplementary_Table_3.pdf")
